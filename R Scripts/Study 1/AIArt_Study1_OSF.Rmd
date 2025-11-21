@@ -1,0 +1,526 @@
+---
+title: "AIvsHuman art analysis, study 1"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Below we have an analysis of AIvsHuman art perceptions. This includes 4 paired t-tests 
+for each of the 4 metrics: like, beauty, profound, worth. Then, we look at
+how individuals performed for each of these, and associated their Human-AI differences for each of the 4DVs with age and with cognitive reflection. Then, I correlate age with CRT for fun.
+
+```{r, echo=FALSE, include=FALSE}
+library(lsmeans)
+library(afex)
+library(reshape2)
+library(tidyverse)
+library(ggplot2)
+library(lsr)
+library(effsize)
+```
+
+# Data Cleaning
+
+## Load data
+```{r}
+#take in raw data
+data <- read.csv('*/AI_data_excel.csv')
+#exclude first three Ps for unfinished data
+df <- data[-c(1:3),]
+#take out 'R_1Dp2fpr6MajEWsB' for bad data
+df1 <- df[-c(which(df$ResponseId=='R_1Dp2fpr6MajEWsB')),]
+df1 <- df1[1:197]
+```
+
+## exclude mis-matched trials
+```{r}
+dfclean <- df1
+#Mancheck30 wasn't properly labeled for condition (1 and 2 switched), needs to be switched
+
+for (i in 1:nrow(dfclean)){
+  #put 1s to 0
+  if(dfclean[i, 'Mancheck_30'] == "1"){
+    dfclean[i, 'Mancheck_30'] <- 0
+  }
+  #put 2s to 1s
+  if(dfclean[i, 'Mancheck_30'] == "2"){
+    dfclean[i, 'Mancheck_30'] <- 1
+  }
+  #put 0s (prev 1s) to 2s
+  if(dfclean[i, 'Mancheck_30'] == 0){
+    dfclean[i, 'Mancheck_30'] <- 2
+  }
+}
+
+c<-0
+for (i in 1:nrow(dfclean)){
+  for (j in 1:30){
+    if ( isTRUE(dfclean[i, paste0("Image",j, "_Condition")] != dfclean[i, paste0("Mancheck_", j)] )) {
+      dfclean[i, paste0("A", j, "_1")] <- NA
+      dfclean[i, paste0("A", j, "_2")] <- NA
+      dfclean[i, paste0("A", j, "_3")] <- NA
+      dfclean[i, paste0("A", j, "_4")] <- NA
+      c <- c+1
+    }
+  }
+}
+print(c)
+```
+
+
+# AI vs Human, 4 ratings: Like, Beauty, Profound, Worth
+```{r, warning=FALSE, messaage=FALSE}
+#reorganize data structure into appropriate long
+df_new <- dfclean[-c(2:47)]
+df_write <- dfclean[-c(2:4)]
+
+new.data <- data.frame(matrix(NA, nrow = 0, ncol = 7))
+colnames(new.data) <- c("ID", "OrderNum", "ManCheck", "R1", "R2", "R3", "R4")
+for (imagenum in 1:30){
+  mancheck_col <- paste0("Mancheck_", imagenum)
+  R1_col <- paste0("A", imagenum, "_1")
+  R2_col <- paste0("A", imagenum, "_2")
+  R3_col <- paste0("A", imagenum, "_3")
+  R4_col <- paste0("A", imagenum, "_4")
+  col_list <- c("ResponseId", mancheck_col, R1_col, R2_col, R3_col, R4_col)
+  image_data <- dplyr::select(df_new, all_of(col_list))
+  #should technically be ImageNum below actually, not OrderNum
+  image_data['OrderNum'] <- imagenum
+  image_data <- rename(image_data, 'Mancheck' = mancheck_col)
+  image_data <- rename(image_data, 'R1' = R1_col)
+  image_data <- rename(image_data, 'R2' = R2_col)
+  image_data <- rename(image_data, 'R3' = R3_col)
+  image_data <- rename(image_data, 'R4' = R4_col)
+  #alternative option:
+  #colnames(image_data) <- c("Response_ID", "OrderNum", "ManCheck", "R1", "R2", "R3", "R4") 
+  new.data <- rbind(new.data, image_data)
+}
+
+#make everything numerics
+for (j in 2:6){
+    new.data[,j] <- as.numeric(new.data[,j])
+}
+
+AI <- subset(new.data, Mancheck==1)
+Human <- subset(new.data, Mancheck==2)
+
+AI_sub <- AI %>% group_by(ResponseId) %>% 
+  summarise(mean_R1 = mean(R1, na.rm=TRUE), mean_R2 = 
+              mean(R2, na.rm=TRUE), mean_R3 = mean(R3, na.rm=TRUE), 
+            mean_R4 = mean(R4, na.rm=TRUE), NumTrials = n())
+
+AI_sub <- AI_sub %>% 
+       rename(AIlike = 2, AIbeauty = 3, AIprofound = 4, AIworth = 5)
+
+Human_sub <- Human %>% group_by(ResponseId) %>% 
+  summarise(mean_R1 = mean(R1, na.rm=TRUE), mean_R2 = 
+              mean(R2, na.rm=TRUE), mean_R3 = mean(R3, na.rm=TRUE), 
+            mean_R4 = mean(R4, na.rm=TRUE), NumTrials = n())
+
+Human_sub <- Human_sub %>% 
+       rename(Humanlike = 2, Humanbeauty = 3, Humanprofound = 4, Humanworth = 5)
+
+
+sub_combined <- cbind(AI_sub[1:5], Human_sub[2:5])
+```
+\pagebreak
+
+## Like
+```{r}
+long_pilotavgs <- melt(sub_combined, id.vars = c('ResponseId'))
+
+pilotlong_like <- subset(long_pilotavgs, variable=='AIlike' | variable=='Humanlike')
+t.test(sub_combined$AIlike, sub_combined$Humanlike, paired=TRUE)
+
+pilotlikeplot <- ggplot(pilotlong_like, aes(x = variable, y = value, fill=variable
+                                  )
+                ) + stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Like') +
+  xlab('Label') + ylab('Rating') +
+  annotate("text", x = 1.5, y = 3.5, label = "*") 
+pilotlikeplot <- pilotlikeplot + scale_fill_manual(values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(pilotlikeplot)
+
+like_d <- cohensD(sub_combined$AIlike, sub_combined$Humanlike)
+like_d
+
+pilotlikeplot2 <- ggplot(pilotlong_like, aes(x = variable, y = value, col=variable)) +
+  #stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Liking') +   geom_jitter(width = 0.05) + stat_summary(fun=mean, geom='point', size=1, colour='black') + stat_summary(fun.data= mean_se, geom='errorbar', aes(width=.3), colour='black') +
+  xlab('Label') + ylab('Rating')  + #aes(colour = factor(variable)) +
+  annotate("text", x = 1.5, y = 4.5, label = "*", size = 10) #+
+  #labs(caption = "SEM Error bars, \n Bonferroni corrected")
+pilotlikeplot2 <- pilotlikeplot2 + scale_color_manual(#breaks=c("0.5","1"), labels=c("Dose 0.5", "Dose 1"),
+  values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(name="Rating", limits=c(1, 5)) + theme(legend.position = "none")        
+#, axis.line = element_line(colour = "black")) 
+print(pilotlikeplot2)
+```
+\pagebreak
+
+## Beauty
+```{r}
+pilotlong_beauty <- subset(long_pilotavgs, variable=='AIbeauty' | variable=='Humanbeauty')
+t.test(sub_combined$AIbeauty, sub_combined$Humanbeauty, paired=TRUE)
+
+pilotbeautyplot <- ggplot(pilotlong_beauty, aes(x = variable, y = value, fill=variable
+                                  )
+                ) + stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Beauty') +
+  xlab('Label') + ylab('Rating') +
+  annotate("text", x = 1.5, y = 3.5, label = "**") 
+pilotbeautyplot <- pilotbeautyplot + scale_fill_manual(
+  values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(pilotbeautyplot)
+
+beauty_d <- cohensD(sub_combined$AIbeauty, sub_combined$Humanbeauty)
+beauty_d
+
+pilotbeautyplot2 <- ggplot(pilotlong_beauty, aes(x = variable, y = value, col=variable)) +
+  #stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Beauty') +   geom_jitter(width = 0.05) + stat_summary(fun=mean, geom='point', size=1, colour='black') + stat_summary(fun.data= mean_se, geom='errorbar', aes(width=.3), colour='black') +
+  xlab('Label') + ylab('Rating')  + #aes(colour = factor(variable)) +
+  annotate("text", x = 1.5, y = 4.5, label = "**", size = 10) #+
+  #labs(caption = "SEM Error bars, \n Bonferroni corrected")
+pilotbeautyplot2 <- pilotbeautyplot2 + scale_color_manual(#breaks=c("0.5","1"), labels=c("Dose 0.5", "Dose 1"),
+  values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(name="Rating", limits=c(1, 5)) + theme(legend.position = "none")        
+#, axis.line = element_line(colour = "black")) 
+print(pilotbeautyplot2)
+```
+\pagebreak
+
+## Profound
+```{r}
+pilotlong_profound <- subset(long_pilotavgs, variable=='AIprofound' | variable=='Humanprofound')
+t.test(sub_combined$AIprofound, sub_combined$Humanprofound, paired=TRUE)
+
+pilotprofoundplot <- ggplot(pilotlong_profound, aes(x = variable, y = value, fill=variable
+                                  )
+                ) + stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Profound') +
+  xlab('Label') + ylab('Rating') +
+  annotate("text", x = 1.5, y = 3.5, label = "***") 
+pilotprofoundplot <- pilotprofoundplot + scale_fill_manual(
+  values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(pilotprofoundplot)
+
+profound_d <- cohensD(sub_combined$AIprofound, sub_combined$Humanprofound)
+profound_d
+
+pilotprofoundplot2 <- ggplot(pilotlong_profound, aes(x = variable, y = value, col=variable)) +
+  #stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Profundity') +   geom_jitter(width = 0.05) + stat_summary(fun=mean, geom='point', size=1, colour='black') + stat_summary(fun.data= mean_se, geom='errorbar', aes(width=.3), colour='black') +
+  xlab('Label') + ylab('Rating')  + #aes(colour = factor(variable)) +
+  annotate("text", x = 1.5, y = 4.5, label = "***", size = 10) #+
+  #labs(caption = "SEM Error bars, \n Bonferroni corrected")
+pilotprofoundplot2 <- pilotprofoundplot2 + scale_color_manual(#breaks=c("0.5","1"), labels=c("Dose 0.5", "Dose 1"),
+  values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(name="Rating", limits=c(1, 5)) + theme(legend.position = "none")        
+#, axis.line = element_line(colour = "black")) 
+print(pilotprofoundplot2)
+```
+\pagebreak
+
+## Worth
+```{r}
+pilotlong_worth <- subset(long_pilotavgs, variable=='AIworth' | variable=='Humanworth')
+t.test(sub_combined$AIworth, sub_combined$Humanworth, paired=TRUE)
+
+pilotworthplot <- ggplot(pilotlong_worth, aes(x = variable, y = value, fill=variable
+                                  )
+                ) + stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Worth') +
+  xlab('Label') + ylab('Rating') +
+  annotate("text", x = 1.5, y = 3.5, label = "***") 
+pilotworthplot <- pilotworthplot + scale_fill_manual(values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(pilotworthplot)
+
+worth_d <- cohensD(sub_combined$AIworth, sub_combined$Humanworth)
+worth_d
+
+pilotworthplot2 <- ggplot(pilotlong_worth, aes(x = variable, y = value, col=variable)) +
+  #stat_summary(fun=mean, geom='bar') + stat_summary(fun.data= mean_se, geom='errorbar') + 
+  ggtitle('Worth') +   geom_jitter(width = 0.05) + stat_summary(fun=mean, geom='point', size=1, colour='black') + stat_summary(fun.data= mean_se, geom='errorbar', aes(width=.3), colour='black') +
+  xlab('Label') + ylab('Rating')  + #aes(colour = factor(variable)) +
+  annotate("text", x = 1.5, y = 4.5, label = "***", size = 10) #+
+  #labs(caption = "SEM Error bars, \n Bonferroni corrected")
+pilotworthplot2 <- pilotworthplot2 + scale_color_manual(#breaks=c("0.5","1"), labels=c("Dose 0.5", "Dose 1"),
+  values=c("#9933FF","#00A9FF"), guide='none') + scale_x_discrete(labels=c('AI', 'Human')) + theme(text = element_text(size=15), axis.text.x = element_text(size=15), axis.text.y = element_text(size=12), plot.title = element_text(hjust = 0.5),panel.background = element_blank(), axis.line = element_line(colour = "black")) + scale_y_continuous(name="Rating", limits=c(1, 5)) + theme(legend.position = "none")        
+#, axis.line = element_line(colour = "black")) 
+print(pilotworthplot2)
+```
+
+
+\pagebreak
+# By subject Human-AI difference scores correlations (individual difference analyses)
+
+## Age ~ Human-AI correlations
+
+```{r, echo=FALSE}
+df_crt <- dfclean
+
+#code responses to correct or incorrect to get 'CRT score'
+for (i in 1:nrow(dfclean)){
+  if (dfclean[i,11] == 5.00){
+    df_crt[i,11] <- 1
+  }
+  else{
+    df_crt[i,11] <- 0
+  }
+  
+  if (dfclean[i,12] == 5){
+    df_crt[i,12] <- 1
+  }
+  else{
+    df_crt[i,12] <- 0
+  }
+  
+  if (dfclean[i,13] == 47){
+    df_crt[i,13] <- 1
+  }
+  else{
+    df_crt[i,13] <- 0
+  }
+  
+  if (dfclean[i,14] == 4){
+    df_crt[i,14] <- 1
+  }
+  else{
+    df_crt[i,14] <- 0
+  }
+  
+  if (dfclean[i,15] == 29){
+    df_crt[i,15] <- 1
+  }
+  else{
+    df_crt[i,15] <- 0
+  }  
+
+  if (dfclean[i,16] == 20){
+    df_crt[i,16] <- 1
+  }
+  else{
+    df_crt[i,16] <- 0
+  }  
+  
+  if (dfclean[i,17] == 3){
+    df_crt[i,17] <- 1
+  }
+  else{
+    df_crt[i,17] <- 0
+  }  
+  
+}
+
+df_crt_only <- df_crt[,11:17]
+df_crt_only[,6] <- as.numeric(df_crt_only[,6])
+df_crt_only[,7] <- as.numeric(df_crt_only[,7])
+df_crt_only_avg <- rowMeans(df_crt_only)
+```
+
+```{r, echo=FALSE}
+df_age_crt <- dfclean[-c(2:4, 6:47)]
+df_age_crt <- cbind(df_age_crt, df_crt_only_avg)
+age.crt.data <- data.frame(matrix(NA, nrow = 0, ncol = 9))
+colnames(age.crt.data) <- c("ID", 'AGE', 'CRT', "OrderNum", "ManCheck", "R1", "R2", "R3", "R4")
+for (imagenum in 1:30){
+  mancheck_col <- paste0("Mancheck_", imagenum)
+  R1_col <- paste0("A", imagenum, "_1")
+  R2_col <- paste0("A", imagenum, "_2")
+  R3_col <- paste0("A", imagenum, "_3")
+  R4_col <- paste0("A", imagenum, "_4")
+  col_list <- c("ResponseId", 'AGE', 'df_crt_only_avg', mancheck_col, R1_col, R2_col, R3_col, R4_col)
+  image_data <- dplyr::select(df_age_crt, all_of(col_list))
+  image_data['OrderNum'] <- imagenum
+  image_data <- rename(image_data, 'Mancheck' = mancheck_col)
+  image_data <- rename(image_data, 'R1' = R1_col)
+  image_data <- rename(image_data, 'R2' = R2_col)
+  image_data <- rename(image_data, 'R3' = R3_col)
+  image_data <- rename(image_data, 'R4' = R4_col)
+  #alternative option:
+  #colnames(image_data) <- c("Response_ID", "OrderNum", "ManCheck", "R1", "R2", "R3", "R4") 
+  age.crt.data <- rbind(age.crt.data, image_data)
+}
+
+for (j in 4:8){
+    age.crt.data[,j] <- as.numeric(age.crt.data[,j])
+}
+
+AI_age_crt <- subset(age.crt.data, Mancheck==1)
+Human_age_crt <- subset(age.crt.data, Mancheck==2)
+
+#order by ID for sake of for-loop that goes through each ID
+ordered_age_crt <- age.crt.data[order(age.crt.data$ResponseId), ]
+
+#make dataframe that lists ID and p-value of each of the 4 ratings
+like_age_crt <- data.frame(matrix(NA, nrow=0, ncol=4))
+colnames(like_age_crt) <- c("ID", 'age', 'CRT', 'Human - AI')
+beauty_age_crt <- data.frame(matrix(NA, nrow=0, ncol=4))
+colnames(beauty_age_crt) <- c("ID", 'age', 'CRT', 'Human - AI')
+profound_age_crt <- data.frame(matrix(NA, nrow=0, ncol=4))
+colnames(profound_age_crt) <- c("ID", 'age', 'CRT', 'Human - AI')
+worth_age_crt <- data.frame(matrix(NA, nrow=0, ncol=4))
+colnames(worth_age_crt) <- c("ID", 'age', 'CRT', 'Human - AI')
+
+#the for loop tries creates data frames for IDs, age, CRT score, and Human-AI for each DV, to allow for easy correlational analyses
+
+for (ID in unique(ordered_age_crt$ResponseId)){
+  subject_data_age_crt <- subset(ordered_age_crt, ResponseId==ID)
+  subject_AI_age_crt <- subset(subject_data_age_crt, Mancheck==1)
+  subject_human_age_crt <- subset(subject_data_age_crt, Mancheck==2)
+
+
+    like_age_crt <- rbind(like_age_crt, c(ID, subject_AI_age_crt[1,2], subject_AI_age_crt[1,3], (mean(subject_human_age_crt$R1, na.rm=TRUE) - mean(subject_AI_age_crt$R1, na.rm=TRUE))))
+
+
+    beauty_age_crt <- rbind(beauty_age_crt, c(ID, subject_AI_age_crt[1,2], subject_AI_age_crt[1,3], (mean(subject_human_age_crt$R2, na.rm=TRUE) - mean(subject_AI_age_crt$R2, na.rm=TRUE))))
+
+
+    profound_age_crt <- rbind(profound_age_crt, c(ID, subject_AI_age_crt[1,2], subject_AI_age_crt[1,3], (mean(subject_human_age_crt$R3, na.rm=TRUE) - mean(subject_AI_age_crt$R3, na.rm=TRUE))))
+
+
+
+    worth_age_crt <- rbind(worth_age_crt, c(ID, subject_AI_age_crt[1,2], subject_AI_age_crt[1,3], (mean(subject_human_age_crt$R4, na.rm=TRUE) - mean(subject_AI_age_crt$R4, na.rm=TRUE))))
+
+  
+}
+
+colnames(like_age_crt) <- c("ID", "age", "CRT", 'Human - AI')
+colnames(beauty_age_crt) <- c("ID", "age", "CRT", 'Human - AI')
+colnames(profound_age_crt) <- c("ID", "age", "CRT", 'Human - AI')
+colnames(worth_age_crt) <- c("ID", "age", "CRT", 'Human - AI')
+like_age_crt[,2] <- as.numeric(like_age_crt[,2])
+like_age_crt[,3] <- as.numeric(like_age_crt[,3])
+like_age_crt[,4] <- as.numeric(like_age_crt[,4])
+beauty_age_crt[,2] <- as.numeric(beauty_age_crt[,2])
+beauty_age_crt[,3] <- as.numeric(beauty_age_crt[,3])
+beauty_age_crt[,4] <- as.numeric(beauty_age_crt[,4])
+profound_age_crt[,2] <- as.numeric(profound_age_crt[,2])
+profound_age_crt[,3] <- as.numeric(profound_age_crt[,3])
+profound_age_crt[,4] <- as.numeric(profound_age_crt[,4])
+worth_age_crt[,2] <- as.numeric(worth_age_crt[,2])
+worth_age_crt[,3] <- as.numeric(worth_age_crt[,3])
+worth_age_crt[,4] <- as.numeric(worth_age_crt[,4])
+```
+
+
+
+### Age ~ Like Human-AI
+
+```{r}
+like_age_lm <- lm(like_age_crt[,4] ~ like_age_crt[,2], data = like_age_crt)
+summary(like_age_lm)
+like_agediff <- ggplot(like_age_crt, aes(like_age_crt[,2], like_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('Age') + ylab('Human - AI: Like') + geom_smooth(method='lm') + annotate("text", x = 54, y = .98, label = "r = -.08, p=.29", color='red')+ ggtitle('Age versus Human-AI difference in Like')
+print(like_agediff)
+```
+
+ \pagebreak
+ 
+### Age ~ Beauty Human-AI
+
+```{r}
+beauty_age_lm <- lm(beauty_age_crt[,4] ~ beauty_age_crt[,2], data = beauty_age_crt)
+summary(beauty_age_lm)
+beauty_agediff <- ggplot(beauty_age_crt, aes(beauty_age_crt[,2], beauty_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('Age') + ylab('Human - AI: Beauty') + geom_smooth(method='lm') + annotate("text", x = 50, y = .98, label = "r = -.10, p=.20", color='red')+ ggtitle('Age versus Human-AI difference in Beauty')
+print(beauty_agediff)
+```
+
+ \pagebreak
+ 
+### Age ~ Profound Human-AI
+
+```{r}
+profound_age_lm <- lm(profound_age_crt[,4] ~ profound_age_crt[,2], data = profound_age_crt)
+summary(profound_age_lm)
+profound_agediff <- ggplot(profound_age_crt, aes(profound_age_crt[,2], profound_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('Age') + ylab('Human - AI: Profound') + geom_smooth(method='lm') + annotate("text", x = 50, y = .98, label = "r = -.09, p=.26", color='red')+ ggtitle('Age versus Human-AI difference in Profound')
+print(profound_agediff)
+```
+
+
+ \pagebreak
+ 
+### Age ~ Worth Human-AI
+
+```{r}
+worth_age_lm <- lm(worth_age_crt[,4] ~ worth_age_crt[,2], data = worth_age_crt)
+summary(worth_age_lm)
+worth_agediff <- ggplot(worth_age_crt, aes(worth_age_crt[,2], worth_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('Age') + ylab('Human - AI: Worth') + geom_smooth(method='lm') + annotate("text", x = 55, y = .98, label = "r = -.04, p=.59", color='red') + ggtitle('Age versus Human-AI difference in Worth')
+print(worth_agediff)
+```
+
+
+
+
+\pagebreak
+
+## CRT ~ Human-AI correlations
+
+### CRT ~ Like Human-AI
+
+```{r}
+like_crt_lm <- lm(like_age_crt[,4] ~ like_age_crt[,3], data = like_age_crt)
+summary(like_crt_lm)
+like_crtdiff <- ggplot(like_age_crt, aes(like_age_crt[,3], like_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('CRT') + ylab('Human - AI: Like') + geom_smooth(method='lm') + annotate("text", x = .55, y = 1.4, label = "r = -.15, p=.07", color='red')+ ggtitle('CRT versus Human-AI difference in Like')
+print(like_crtdiff)
+```
+
+
+\pagebreak
+### CRT ~ Beauty Human-AI
+
+```{r}
+beauty_crt_lm <- lm(beauty_age_crt[,4] ~ beauty_age_crt[,3], data = beauty_age_crt)
+summary(beauty_crt_lm)
+beauty_crtdiff <- ggplot(beauty_age_crt, aes(beauty_age_crt[,3], beauty_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('CRT') + ylab('Human - AI: Beauty') + geom_smooth(method='lm') + annotate("text", x = .55, y = 1.4, label = "r = -.17, p=.04", color='red')+ ggtitle('CRT versus Human-AI difference in Beauty')
+print(beauty_crtdiff)
+```
+
+
+\pagebreak
+### CRT ~ Profound Human-AI
+
+```{r}
+profound_crt_lm <- lm(profound_age_crt[,4] ~ profound_age_crt[,3], data = profound_age_crt)
+summary(profound_crt_lm)
+profound_crtdiff <- ggplot(profound_age_crt, aes(profound_age_crt[,3], profound_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('CRT') + ylab('Human - AI: Profound') + geom_smooth(method='lm') + annotate("text", x = .55, y = 1.4, label = "r = 0, p=.95", color='red')+ ggtitle('CRT versus Human-AI difference in Profound')
+print(profound_crtdiff)
+```
+
+
+\pagebreak
+### CRT ~ Worth Human-AI
+```{r}
+worth_crt_lm <- lm(worth_age_crt[,4] ~ worth_age_crt[,3], data = worth_age_crt)
+summary(worth_crt_lm)
+worth_crtdiff <- ggplot(worth_age_crt, aes(worth_age_crt[,3], worth_age_crt[,4])) +
+  geom_point(color='turquoise4') + xlab('CRT') + ylab('Human - AI: Worth') + geom_smooth(method='lm') + annotate("text", x = .55, y = 1.4, label = "r = .07, p=.37", color='red')+ ggtitle('CRT versus Human-AI difference in Worth')
+print(worth_crtdiff)
+```
+
+
+
+\pagebreak
+
+## CRT ~ Age
+```{r}
+age_crt_lm <- lm(worth_age_crt[,3] ~ worth_age_crt[,2], data = worth_age_crt)
+summary(age_crt_lm)
+age_crt <- ggplot(worth_age_crt, aes(worth_age_crt[,2], worth_age_crt[,3])) +
+  geom_point(color='turquoise4') + xlab('Age') + ylab('CRT') + geom_smooth(method='lm')+  annotate("text", x = 55, y = .9, label = "r = .23, p=.004***", color='red')+
+   ggtitle('Age versus CRT')
+print(age_crt)
+```
+

@@ -1,0 +1,102 @@
+---
+title: "AI Art | Story"
+output: html_document
+date: '2022-12-14'
+---
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+devtools::install_github("gorkang/html2latex")
+```
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(html2latex)
+library(knitr)
+library(lmerTest)
+library(performance)
+library(effects)
+library(ggplot2)
+library(tools)
+library(tidyverse)
+library(sjPlot)
+library(psych)
+library(htmltools)
+```
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+# Load csv
+long <- read.csv("./Data/longclean_AI_matched.csv")
+
+# Only use data with conditions matched
+# (i.e., participants reported correct painter)
+final <- long[long$Matched == 1,]
+
+# Set levels for interpretation
+final$Mancheck <- factor(
+  final$Mancheck, levels = c("AI", "Human")
+)
+final$paintType <- factor(
+  final$paintType, levels = c("A", "R")
+)
+
+# Log-transformed minutes
+final$logTime <- log(final$totalmins)
+final$logTime <- ifelse(is.infinite(final$logTime), 0, final$logTime)
+
+# Add age
+wide <- read.csv("./Data/clean_AI.csv")
+final$age <- wide$AGE[match(final$ResponseId, wide$ResponseId)]
+
+# Center level-2 variables
+final$growth <- final$growth - mean(final$growth)
+final$fixed <- final$fixed - mean(final$fixed)
+final$empathy <- final$empathy - mean(final$empathy)
+final$openness <- final$openness - mean(final$openness)
+final$posAI <- final$posAI - mean(final$posAI)
+final$negAI <- final$negAI - mean(final$negAI)
+final$crtcorrect <- final$crtcorrect - mean(final$crtcorrect)
+final$age <- final$age - mean(final$age)
+```
+
+## "Who" Model
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Perform linear mixed effects model
+who <- lmer(
+  formula = story ~ paintType + # fixed effects
+    Mancheck * openness + Mancheck * posAI + Mancheck * negAI +
+    Mancheck * growth + Mancheck * fixed + Mancheck * empathy +
+    Mancheck * crtcorrect + Mancheck * age +
+    (Mancheck | ResponseId) + (1 | ImageNum),
+  data = final, REML = FALSE
+)
+
+# Obtain HTML table
+tab_model(
+  who, show.aic = TRUE,
+  show.se = TRUE,
+  show.r2 = TRUE
+)
+```
+
+### Fixed Effects
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Compute all effects
+allEffects(who)
+```
+
+### Residuals
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Obtain model residuals
+res <- residuals(who)
+descript <- as.matrix(describe(res))
+values <- t(round(descript[,c("mean", "sd", "skew", "kurtosis")], 3))
+
+kable(
+  values,
+  row.names = FALSE,
+  booktabs = TRUE
+)
+```

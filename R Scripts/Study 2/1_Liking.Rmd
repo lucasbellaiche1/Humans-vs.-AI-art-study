@@ -1,0 +1,265 @@
+---
+title: "AI Art | Liking"
+output: html_document
+date: '2022-12-14'
+---
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+devtools::install_github("gorkang/html2latex")
+```
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(html2latex)
+library(knitr)
+library(lmerTest)
+library(performance)
+library(effects)
+library(ggplot2)
+library(tools)
+library(tidyverse)
+library(sjPlot)
+library(psych)
+library(htmltools)
+```
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+# Load csv
+long <- read.csv("./Data/longclean_AI_matched.csv")
+
+# Only use data with conditions matched
+# (i.e., participants reported correct painter)
+final <- long[long$Matched == 1,]
+
+# Set levels for interpretation
+final$Mancheck <- factor(
+  final$Mancheck, levels = c("AI", "Human")
+)
+final$paintType <- factor(
+  final$paintType, levels = c("A", "R")
+)
+
+# Log-transformed minutes
+final$logTime <- log(final$totalmins)
+final$logTime <- ifelse(is.infinite(final$logTime), 0, final$logTime)
+
+# Add age
+wide <- read.csv("./Data/clean_AI.csv")
+final$age <- wide$AGE[match(final$ResponseId, wide$ResponseId)]
+
+# Center level-2 variables
+final$growth <- final$growth - mean(final$growth)
+final$fixed <- final$fixed - mean(final$fixed)
+final$empathy <- final$empathy - mean(final$empathy)
+final$openness <- final$openness - mean(final$openness)
+final$posAI <- final$posAI - mean(final$posAI)
+final$negAI <- final$negAI - mean(final$negAI)
+final$crtcorrect <- final$crtcorrect - mean(final$crtcorrect)
+final$age <- final$age - mean(final$age)
+```
+
+## "Who" Model
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Perform linear mixed effects model
+who <- lmer(
+  formula = like ~ paintType + # fixed effects
+    Mancheck * openness + Mancheck * posAI + Mancheck * negAI +
+    Mancheck * growth + Mancheck * fixed + Mancheck * empathy +
+    Mancheck * crtcorrect + Mancheck * age +
+    (Mancheck | ResponseId) + (1 | ImageNum),
+  data = final, REML = FALSE
+)
+
+# Obtain HTML table
+tab_model(
+  who, show.aic = TRUE,
+  show.se = TRUE,
+  show.r2 = TRUE
+)
+```
+
+### Fixed Effects
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Compute all effects
+allEffects(who)
+```
+
+### Residuals
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Obtain model residuals
+res <- residuals(who)
+descript <- as.matrix(describe(res))
+values <- t(round(descript[,c("mean", "sd", "skew", "kurtosis")], 3))
+
+kable(
+  values,
+  row.names = FALSE,
+  booktabs = TRUE
+)
+```
+
+## "Why" Model
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Perform linear mixed effects model
+why <- lmer(
+  formula = like ~ paintType + # fixed effects
+    Mancheck * openness + Mancheck * posAI + Mancheck * negAI +
+    Mancheck * growth + Mancheck * fixed + Mancheck * empathy +
+    Mancheck * crtcorrect + Mancheck * age +
+    Mancheck * emo + Mancheck * story +
+    Mancheck * meaningful + Mancheck * effort +
+    Mancheck * logTime +
+    (Mancheck | ResponseId) + (1 | ImageNum),
+  data = final, REML = FALSE
+)
+
+# Obtain HTML table
+tab_model(
+  why, show.aic = TRUE,
+  show.se = TRUE,
+  show.r2 = TRUE
+)
+```
+
+### Fixed Effects
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Compute all effects
+allEffects(why)
+```
+
+### Residuals
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Obtain model residuals
+res <- residuals(why)
+descript <- as.matrix(describe(res))
+values <- t(round(descript[,c("mean", "sd", "skew", "kurtosis")], 3))
+
+kable(
+  values,
+  row.names = FALSE,
+  booktabs = TRUE
+)
+```
+
+## "Significant" Model
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Perform linear mixed effects model
+sig <- lmer(
+  formula = like ~ paintType + # fixed effects
+    emo + Mancheck * story +
+    meaningful + Mancheck * effort +
+    (Mancheck | ResponseId) + (1 | ImageNum),
+  data = final, REML = FALSE
+)
+
+# Obtain HTML table
+tab_model(
+  sig, show.aic = TRUE,
+  show.se = TRUE,
+  show.r2 = TRUE
+)
+```
+
+### Fixed Effects
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Compute all effects
+allEffects(sig)
+```
+
+### Residuals
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE}
+# Obtain model residuals
+res <- residuals(sig)
+descript <- as.matrix(describe(res))
+values <- t(round(descript[,c("mean", "sd", "skew", "kurtosis")], 3))
+
+kable(
+  values,
+  row.names = FALSE,
+  booktabs = TRUE
+)
+```
+
+
+## Plot Interactions
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE, cache = TRUE, fig.height = 3, fig.width = 3}
+# Set up data frame
+plot_df <- data.frame(
+  Like = c(
+    2.572227, 2.804456, 3.036684, 3.268912, 3.501141, # AI Story
+    2.517246, 2.653044, 2.788842, 2.924640, 3.060438, # Human Story
+    2.774392, 2.881600, 2.988808, 3.096016, 3.203224, # AI Effort
+    2.330151, 2.559481, 2.788812, 3.018142, 3.247473, # Human Effort
+    2.592773, 2.832075, 3.071377, 3.310679, 3.549981, # AI Story
+    2.524278, 2.684331, 2.844384, 3.004437, 3.164490, # Human Story
+    2.747132, 2.887059, 3.026986, 3.166913, 3.306840, # AI Effort
+    2.353990, 2.596869, 2.839748, 3.082627, 3.325505  # Human Effort
+  ),
+  Rating = as.factor(rep(1:5, times = 4)),
+  Measure = rep(c("Story", "Effort"), each = 10),
+  Label = rep(c("AI", "Human"), each = 5),
+  Criterion = rep(
+    c("Like", "Beauty"), each = 20
+  )
+)
+
+# Add standard error
+plot_df$low_se <- plot_df$Like - rep(
+  c(0.02 * 1.96, 0.03 * 1.96),
+  each = 10
+)
+plot_df$high_se <- plot_df$Like + rep(
+  c(0.02 * 1.96, 0.03 * 1.96),
+  each = 10
+)
+
+# Plot
+ggplot(
+  data = plot_df,
+  aes(
+    x = Rating,
+    y = Like,
+    color = Label,
+    group = Label
+  )
+) +
+  scale_color_manual(
+    values = c("#8d3cff", "#50a6ff")
+  ) +
+  geom_ribbon(
+    aes(
+      ymin = low_se, ymax = high_se,
+      fill = Label
+    ), alpha = 0.30
+  ) +
+  scale_fill_manual(
+    values = c("#8d3cff", "#50a6ff")
+  ) +
+  labs(y = "Rating") +
+  scale_y_continuous(
+    limits = c(2, 4),
+    position = "right"
+  ) +
+  facet_grid(
+    ~ Criterion ~ Measure,
+    switch = "y"
+  ) +
+  geom_line(stat = "identity", linewidth = 1) +
+  theme(
+    panel.background = element_blank(),
+    axis.line = element_line(linewidth = 1),
+    legend.position = "bottom"
+  )
+
+
+```

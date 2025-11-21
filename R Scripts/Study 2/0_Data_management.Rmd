@@ -1,0 +1,175 @@
+---
+title: "AI Art | Data Management"
+output: pdf_document
+date: '2022-11-10'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+### Load data
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+# Load csv
+raw <- read.csv("./Data/AIartclean_withorder.csv")
+```
+
+### Remove bad case
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+# Remove bad case
+good <- raw[-which(raw$ResponseId == "R_r85Ld4sP9Y3PDFv"),]
+```
+
+### Check birth year and age match
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+# Estimated age
+estimated_age <- 2022 - good$birthyear
+
+# Obtain absolute difference
+abs_diff <- abs(estimated_age - good$AGE)
+
+# Check for any greater than 1
+which(abs_diff > 1) # 105 put age twice
+
+# Remove participant 19 and 58
+good <- good[-c(19, 58),]
+```
+
+### Obtain actual conditions
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+# Condition order
+condition_order <- good$FL_61_DO
+
+# Split based on "|"
+condition_split <- strsplit(
+  condition_order, split = "\\|"
+)
+
+# Obtain individual conditions
+# Converts to matrix for next step in `apply`
+individual_conditions <- as.matrix(good[
+  , paste0("X", 1:30, "_DO")
+])
+
+# Split based on "|" and extract art maker
+individual_splits <- t(apply(
+  individual_conditions,
+  1, function(x){
+    
+    # Perform split
+    x <- unlist(strsplit(x, split = "\\|"))
+    
+    # Obtain "DO1" only
+    x <- x[grep("DO1", names(x))]
+    
+    # Keep only numbers and letters (remove punctuations)
+    x <- gsub("[[:punct:]]", "", x)
+    
+    # Keep only letters
+    x <- gsub("[0-9]+", "", x)
+    
+    # Convert to 1s (Human) and 2s (AI)
+    x <- ifelse(x == "Human", 1, 2)
+    
+    # Ensure numeric
+    x <- as.numeric(x)
+    
+    # Keep names
+    names(x) <- paste0("X", 1:30)
+    
+    # Return
+    return(x)
+
+  }
+))
+
+# Compare actual conditions with reported conditions
+matched_conditions <- individual_splits # initialize matrix
+
+# Loop through to match
+for(i in 1:ncol(matched_conditions)){
+  
+  # Stored matches
+  matched_conditions[,i] <- good[,paste0("Mancheck_", i)] == 
+    individual_splits[,paste0("X", i)]
+  
+}
+
+# Eliminate "Mancheck" and "_DO" variables
+slim_good <- good[
+  , -c(
+    grep("Mancheck_", colnames(good)),
+    grep("_DO", colnames(good))
+  )
+]
+
+# Add back matched conditions
+use_good <- cbind.data.frame(
+  slim_good, matched_conditions
+)
+
+```
+
+### Merge data with `longclean_AI` file
+
+```{r, echo = FALSE, eval = TRUE, comment = NA, message = FALSE, warning = FALSE}
+# Load file
+long <- read.csv("./Data/longclean_AI.csv")
+
+# Create long matched conditions variable
+long_matched <- pivot_longer(
+  use_good,
+  cols = paste0("X", 1:30),
+  names_to = "ImageNum",
+  values_to = "MATCHED"
+)
+
+# Store only necessary variables
+add_columns <- data.frame(
+  ResponseId = long_matched$ResponseId,
+  ImageNum = long_matched$ImageNum,
+  Matched = long_matched$MATCHED
+)
+
+# Remove "X" from `ImageNum`
+add_columns$ImageNum <- gsub(
+  "X", "", add_columns$ImageNum
+)
+
+
+# Add variables to long
+check <- merge(
+  x = long, y = add_columns,
+  by.x = c("ResponseId", "ImageNum")
+)
+
+# Save checked data
+write.csv(
+  check,
+  file = "./Data/longclean_AI_matched.csv",
+  row.names = FALSE
+)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
